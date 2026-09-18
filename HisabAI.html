@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>HisabAI — Smart Personal Expense Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','Noto Sans Bengali','system-ui','sans-serif']}}}}
+</script>
+<style>
+*{box-sizing:border-box}html,body{min-height:100%;font-family:Inter,"Noto Sans Bengali",system-ui,sans-serif}
+body{background:#f8fafc;color:#0f172a}.dark body{background:#020617;color:#e2e8f0}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:99px}
+.card{border:1px solid #e2e8f0;background:#fff;border-radius:18px;box-shadow:0 8px 30px rgba(15,23,42,.05)}
+.dark .card{background:#0f172a;border-color:#1e293b;box-shadow:none}
+.input{width:100%;border:1px solid #cbd5e1;border-radius:12px;padding:.7rem .8rem;background:#fff;outline:none}
+.input:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.12)}
+.dark .input{background:#020617;border-color:#334155;color:#e2e8f0}
+.btn{border-radius:12px;padding:.65rem .9rem;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:.45rem;transition:.15s}
+.btn:active{transform:scale(.98)}.btn-primary{background:#4f46e5;color:#fff}.btn-primary:hover{background:#4338ca}
+.btn-soft{background:#eef2ff;color:#4338ca}.dark .btn-soft{background:#1e1b4b;color:#c7d2fe}
+.btn-ghost{background:transparent;color:#475569}.dark .btn-ghost{color:#cbd5e1}.btn-danger{background:#fee2e2;color:#b91c1c}
+.nav-active{background:#eef2ff;color:#4338ca}.dark .nav-active{background:#1e1b4b;color:#c7d2fe}
+.table-wrap{overflow:auto}.table-wrap table{min-width:850px}
+.badge{font-size:.72rem;font-weight:800;padding:.2rem .5rem;border-radius:999px;background:#f1f5f9}.dark .badge{background:#1e293b}
+.modal-bg{background:rgba(2,6,23,.62);backdrop-filter:blur(4px)}
+.toast{animation:toast .2s ease-out}@keyframes toast{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media print{
+ body{background:#fff!important;color:#111827!important}.no-print,#sidebar,#mobileNav,.modal-bg,#toastRoot{display:none!important}
+ #main{margin:0!important;width:100%!important}.print-only{display:block!important}.card{box-shadow:none!important;border:1px solid #ddd!important}
+}
+.print-only{display:none}
+</style>
+</head>
+<body>
+<div id="app" class="min-h-screen"></div>
+<div id="toastRoot" class="fixed right-4 top-4 z-[100] space-y-2 w-[min(360px,calc(100vw-2rem))]"></div>
+<script>
+"use strict";
+
+/* =========================================================
+   HisabAI V1 — Single-file offline-first finance app
+   ========================================================= */
+
+const Utils={
+ uid(prefix='id'){return prefix+'_'+crypto.randomUUID()},
+ now(){return new Date().toISOString()},
+ dateISO(d=new Date()){return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)},
+ timeNow(d=new Date()){return d.toTimeString().slice(0,5)},
+ money(n){return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})},
+ num(n){return Number(n||0).toLocaleString()},
+ esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))},
+ norm(s){return String(s||'').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu,'').trim()},
+ date(d){return new Date(d+'T00:00:00').toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'})},
+ monthKey(d){return d.slice(0,7)},
+ pct(a,b){return b===0?(a===0?0:null):((a-b)/Math.abs(b))*100},
+ clamp(n,a,b){return Math.max(a,Math.min(b,n))}
+};
+
+const LocalizationService={
+ lang:localStorage.getItem('hisabai_lang')||'en',
+ dict:{
+ en:{
+  app:'HisabAI',subtitle:'Smart Personal Expense Manager',dashboard:'Dashboard',transactions:'Transactions',categories:'Categories',
+  reports:'Reports',balances:'Balances',settings:'Settings',addExpense:'Add Expense',addIncome:'Add Income',
+  today:'Today',yesterday:'Yesterday',thisWeek:'Current week',prevWeek:'Previous week',firstHalf:'First half',secondHalf:'Second half',
+  thisMonth:'Current month',prevMonth:'Previous month',thisYear:'Current year',prevYear:'Previous year',custom:'Custom range',
+  expense:'Expense',income:'Income',amount:'Amount',quantity:'Quantity',unit:'Unit',category:'Category',note:'Note',date:'Date',time:'Time',
+  payment:'Payment method',save:'Save',cancel:'Cancel',edit:'Edit',delete:'Delete',search:'Search',filter:'Filter',all:'All',
+  recent:'Recent transactions',topCategories:'Top spending categories',trend:'Spending trend',monthly:'Monthly comparison',
+  totalExpense:'Total expense',totalIncome:'Total income',starting:'Starting balance',ending:'Ending balance',currentBalance:'Current balance',
+  count:'Transactions',average:'Average expense',categoryBreakdown:'Category breakdown',quantityConsumption:'Quantity consumption',
+  noData:'No data yet',noTransactions:'No transactions found',confirmDelete:'Delete this financial record? This cannot be undone.',
+  categoryName:'Category name',parent:'Parent category',root:'Top level',addCategory:'Add category',rename:'Rename',demo:'Load Demo Data',
+  clearDemo:'Clear Demo Data',export:'Export Excel',print:'Print Report',voice:'Voice entry',listen:'Listening…',
+  unsupported:'Speech recognition is not supported in this browser.',language:'Language',theme:'Theme',light:'Light',dark:'Dark',
+  reportPeriod:'Report period',from:'From',to:'To',compare:'Compare periods',periodA:'Period A',periodB:'Period B',
+  difference:'Difference',change:'Change',create:'Create',safeDelete:'Safe delete',incomeType:'Income',expenseType:'Expense',
+  paymentCash:'Cash',paymentCard:'Card',paymentBank:'Bank',paymentMobile:'Mobile banking',paymentOther:'Other',
+  amountRequired:'Enter a valid positive amount.',categoryRequired:'Select a category.',saved:'Saved successfully.',
+  deleted:'Deleted successfully.',duplicate:'A similar record already exists.',categoryDuplicate:'That category already exists here.',
+  emptyStart:'Start tracking your finances.',quantityHint:'Optional — e.g. 5 kg',unitHint:'kg, litre, trip, pack…',
+  voiceHint:'Try: “রিকশা ভাড়া ২০ টাকা” or “আজ ৫ কেজি চাল ৪৫০ টাকা”',allCategories:'All categories',
+  overview:'Overview',quickAdd:'Quick add',period:'Period',actions:'Actions',type:'Type',path:'Category path',
+  consumption:'Consumption',sync:'Sync status',localOnly:'Local only',notSynced:'Unsynced changes',synced:'All local changes ready for future sync',
+  records:'records',deleteCategory:'Delete category',deleteCategoryWarn:'Transactions using this category will keep their historical path.',
+  keepHistory:'Keep historical records',categoryDeleted:'Category deleted safely.',demoLoaded:'Demo data loaded.',demoCleared:'Demo data cleared.',
+  noDemo:'No demo data found.',invalidRange:'Start date must be before or equal to end date.',excelReady:'Excel workbook exported.',
+  printTitle:'HisabAI Financial Report',noSpeech:'Speech service unavailable.',recognized:'Recognized',createCategory:'Create category'
+ },
+ bn:{
+  app:'হিসাবAI',subtitle:'স্মার্ট ব্যক্তিগত খরচ ব্যবস্থাপনা',dashboard:'ড্যাশবোর্ড',transactions:'লেনদেন',categories:'ক্যাটাগরি',
+  reports:'রিপোর্ট',balances:'ব্যালান্স',settings:'সেটিংস',addExpense:'খরচ যোগ',addIncome:'আয় যোগ',
+  today:'আজ',yesterday:'গতকাল',thisWeek:'চলতি সপ্তাহ',prevWeek:'আগের সপ্তাহ',firstHalf:'মাসের প্রথমার্ধ',secondHalf:'মাসের দ্বিতীয়ার্ধ',
+  thisMonth:'চলতি মাস',prevMonth:'আগের মাস',thisYear:'চলতি বছর',prevYear:'আগের বছর',custom:'নিজস্ব সময়সীমা',
+  expense:'খরচ',income:'আয়',amount:'টাকা',quantity:'পরিমাণ',unit:'একক',category:'ক্যাটাগরি',note:'নোট',date:'তারিখ',time:'সময়',
+  payment:'পেমেন্ট মাধ্যম',save:'সংরক্ষণ',cancel:'বাতিল',edit:'সম্পাদনা',delete:'মুছুন',search:'খুঁজুন',filter:'ফিল্টার',all:'সব',
+  recent:'সাম্প্রতিক লেনদেন',topCategories:'শীর্ষ খরচের ক্যাটাগরি',trend:'খরচের প্রবণতা',monthly:'মাসভিত্তিক তুলনা',
+  totalExpense:'মোট খরচ',totalIncome:'মোট আয়',starting:'শুরুর ব্যালান্স',ending:'শেষ ব্যালান্স',currentBalance:'বর্তমান ব্যালান্স',
+  count:'লেনদেন',average:'গড় খরচ',categoryBreakdown:'ক্যাটাগরি বিশ্লেষণ',quantityConsumption:'পণ্য/পরিমাণ ব্যবহার',
+  noData:'এখনও কোনো তথ্য নেই',noTransactions:'কোনো লেনদেন পাওয়া যায়নি',confirmDelete:'এই আর্থিক রেকর্ডটি মুছবেন? এটি ফেরত আনা যাবে না।',
+  categoryName:'ক্যাটাগরির নাম',parent:'মূল ক্যাটাগরি',root:'শীর্ষ স্তর',addCategory:'ক্যাটাগরি যোগ',rename:'নাম বদলান',demo:'ডেমো ডেটা আনুন',
+  clearDemo:'ডেমো ডেটা মুছুন',export:'Excel এক্সপোর্ট',print:'রিপোর্ট প্রিন্ট',voice:'ভয়েস এন্ট্রি',listen:'শোনা হচ্ছে…',
+  unsupported:'এই ব্রাউজারে Speech Recognition সমর্থিত নয়।',language:'ভাষা',theme:'থিম',light:'লাইট',dark:'ডার্ক',
+  reportPeriod:'রিপোর্টের সময়',from:'থেকে',to:'পর্যন্ত',compare:'দুই সময়ের তুলনা',periodA:'সময় A',periodB:'সময় B',
+  difference:'পার্থক্য',change:'পরিবর্তন',create:'তৈরি',safeDelete:'নিরাপদে মুছুন',incomeType:'আয়',expenseType:'খরচ',
+  paymentCash:'নগদ',paymentCard:'কার্ড',paymentBank:'ব্যাংক',paymentMobile:'মোবাইল ব্যাংকিং',paymentOther:'অন্যান্য',
+  amountRequired:'সঠিক ধনাত্মক পরিমাণ দিন।',categoryRequired:'একটি ক্যাটাগরি নির্বাচন করুন।',saved:'সফলভাবে সংরক্ষিত হয়েছে।',
+  deleted:'সফলভাবে মুছে ফেলা হয়েছে।',duplicate:'একই ধরনের রেকর্ড ইতিমধ্যে আছে।',categoryDuplicate:'এই স্তরে একই ক্যাটাগরি আছে।',
+  emptyStart:'আজ থেকেই খরচের হিসাব রাখুন।',quantityHint:'ঐচ্ছিক — যেমন ৫ কেজি',unitHint:'কেজি, লিটার, ট্রিপ, প্যাক…',
+  voiceHint:'বলুন: “রিকশা ভাড়া ২০ টাকা” অথবা “আজ ৫ কেজি চাল ৪৫০ টাকা”',allCategories:'সব ক্যাটাগরি',
+  overview:'সারসংক্ষেপ',quickAdd:'দ্রুত যোগ',period:'সময়',actions:'অ্যাকশন',type:'ধরন',path:'ক্যাটাগরি পথ',
+  consumption:'ব্যবহার',sync:'সিঙ্ক অবস্থা',localOnly:'শুধু লোকাল',notSynced:'সিঙ্ক না হওয়া পরিবর্তন',synced:'ভবিষ্যৎ সিঙ্কের জন্য লোকাল পরিবর্তন প্রস্তুত',
+  records:'টি রেকর্ড',deleteCategory:'ক্যাটাগরি মুছুন',deleteCategoryWarn:'এই ক্যাটাগরির পুরোনো লেনদেনের ইতিহাসের পথ অক্ষত থাকবে।',
+  keepHistory:'পুরোনো ইতিহাস রাখুন',categoryDeleted:'ক্যাটাগরি নিরাপদে মুছে ফেলা হয়েছে।',demoLoaded:'ডেমো ডেটা যোগ হয়েছে।',demoCleared:'ডেমো ডেটা মুছে গেছে।',
+  noDemo:'ডেমো ডেটা পাওয়া যায়নি।',invalidRange:'শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।',excelReady:'Excel ফাইল তৈরি হয়েছে।',
+  printTitle:'হিসাবAI আর্থিক রিপোর্ট',noSpeech:'ভয়েস সার্ভিস পাওয়া যাচ্ছে না।',recognized:'বোঝা হয়েছে',createCategory:'ক্যাটাগরি তৈরি'
+ }},
+ t(k){return this.dict[this.lang][k]||this.dict.en[k]||k},
+ set(l){this.lang=l;localStorage.setItem('hisabai_lang',l);App.render()}
+};
+
+const DatabaseService={
+ db:null, demoPrefix:'demo_',
+ async init(){
+  return new Promise((res,rej)=>{
+   const req=indexedDB.open('HisabAI_V1',1);
+   req.onupgradeneeded=e=>{
+    const db=e.target.result;
+    if(!db.objectStoreNames.contains('transactions')){const s=db.createObjectStore('transactions',{keyPath:'id'});s.createIndex('date','date');s.createIndex('type','type');s.createIndex('categoryId','categoryId');}
+    if(!db.objectStoreNames.contains('categories')){const s=db.createObjectStore('categories',{keyPath:'id'});s.createIndex('parentId','parentId');s.createIndex('nameNorm','nameNorm');}
+    if(!db.objectStoreNames.contains('balances')){const s=db.createObjectStore('balances',{keyPath:'date'});}
+    if(!db.objectStoreNames.contains('settings'))db.createObjectStore('settings',{keyPath:'key'});
+   };
+   req.onsuccess=e=>{this.db=e.target.result;res(this.db)};
+   req.onerror=()=>rej(req.error||new Error('IndexedDB unavailable'));
+  })
+ },
+ tx(store,mode='readonly'){return this.db.transaction(store,mode).objectStore(store)},
+ async put(store,obj){return new Promise((res,rej)=>{const r=this.tx(store,'readwrite').put(obj);r.onsuccess=()=>res(obj);r.onerror=()=>rej(r.error)})},
+ async add(store,obj){return new Promise((res,rej)=>{const r=this.tx(store,'readwrite').add(obj);r.onsuccess=()=>res(obj);r.onerror=()=>rej(r.error)})},
+ async del(store,key){return new Promise((res,rej)=>{const r=this.tx(store,'readwrite').delete(key);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})},
+ async get(store,key){return new Promise((res,rej)=>{const r=this.tx(store).get(key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})},
+ async all(store){return new Promise((res,rej)=>{const r=this.tx(store).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)})},
+ async clearWhere(store,pred){const all=await this.all(store);for(const x of all)if(pred(x))await this.del(store,x.id??x.date??x.key);},
+ async setting(key,val){if(val!==undefined)return this.put('settings',{key,value:val,updatedAt:Utils.now()});const x=await this.get('settings',key);return x?.value}
+};
+
+const CategoryService={
+ async all(){return DatabaseService.all('categories')},
+ async seed(){
+  if((await this.all()).length)return;
+  const roots=['Food','Transport','Smoking','Housing','Health','Shopping','Bills','Entertainment'];
+  const map={};
+  for(const n of roots){const id=Utils.uid('cat');map[n]=id;await this.create(n,null,id)}
+  const children={
+   Food:['Grocery','Restaurant'],Grocery:['Rice','Oil','Tea','Vegetables'],Transport:['Rickshaw Fare','Bus','CNG'],
+   Smoking:['Biri','Cigarette'],Housing:['Rent','Utilities'],Health:['Medicine','Doctor'],Shopping:['Clothing','Household'],
+   Bills:['Internet','Electricity','Mobile'],Entertainment:['Movies','Games']
+  };
+  const parentMap={};
+  for(const root of roots)parentMap[root]=map[root];
+  for(const [p,arr] of Object.entries(children)){
+   const parentId=parentMap[p]||map[p];
+   for(const n of arr){const id=Utils.uid('cat');parentMap[n]=id;await this.create(n,parentId,id)}
+  }
+ },
+ async create(name,parentId=null,id=Utils.uid('cat')){
+  name=String(name||'').trim();if(!name)throw Error('Category name required');
+  const all=await this.all(),norm=Utils.norm(name);
+  if(all.some(c=>c.parentId===(parentId||null)&&c.nameNorm===norm))throw Error(LocalizationService.t('categoryDuplicate'));
+  return DatabaseService.add('categories',{id,name,nameNorm:norm,parentId:parentId||null,createdAt:Utils.now(),updatedAt:Utils.now(),deleted:false})
+ },
+ async update(id,name){
+  const all=await this.all(),c=all.find(x=>x.id===id);if(!c)return;
+  const norm=Utils.norm(name);
+  if(all.some(x=>x.id!==id&&x.parentId===c.parentId&&x.nameNorm===norm))throw Error(LocalizationService.t('categoryDuplicate'));
+  c.name=String(name).trim();c.nameNorm=norm;c.updatedAt=Utils.now();await DatabaseService.put('categories',c)
+ },
+ async remove(id){
+  const all=await this.all(), children=all.filter(x=>x.parentId===id);
+  for(const c of children)await this.remove(c.id);
+  const c=all.find(x=>x.id===id);if(c){c.deleted=true;c.updatedAt=Utils.now();await DatabaseService.put('categories',c)}
+ },
+ async path(id,all=null){
+  all=all||await this.all();let c=all.find(x=>x.id===id),p=[];const seen=new Set();
+  while(c&&!seen.has(c.id)){seen.add(c.id);p.unshift(c.name);c=all.find(x=>x.id===c.parentId)}
+  return p.join(' > ')
+ },
+ tree(all){
+  const active=all.filter(c=>!c.deleted),by=new Map(active.map(c=>[c.id,{...c,children:[]}]));
+  const roots=[];for(const c of active){if(c.parentId&&by.has(c.parentId))by.get(c.parentId).children.push(by.get(c.id));else roots.push(by.get(c.id))}
+  return roots
+ },
+ options(all,selected=''){
+  const out=[];
+  const walk=(nodes,depth)=>nodes.forEach(n=>{out.push(`<option value="${n.id}" ${n.id===selected?'selected':''}>${'— '.repeat(depth)}${Utils.esc(n.name)}</option>`);walk(n.children,depth+1)});
+  walk(this.tree(all),0);return out.join('')
+ }
+};
+
+const TransactionService={
+ async all(){return DatabaseService.all('transactions')},
+ async save(data){
+  const amount=Number(data.amount),qty=data.quantity===''||data.quantity==null?null:Number(data.quantity);
+  if(!Number.isFinite(amount)||amount<=0)throw Error(LocalizationService.t('amountRequired'));
+  if(qty!==null&&(!Number.isFinite(qty)||qty<=0))throw Error(LocalizationService.t('amountRequired'));
+  const all=await this.all();
+  const duplicate=all.find(x=>x.id!==data.id&&x.date===data.date&&x.time===data.time&&x.amount===amount&&x.type===data.type&&x.categoryId===data.categoryId&&String(x.note||'').trim()===String(data.note||'').trim());
+  if(duplicate&&!data.allowDuplicate)throw Error(LocalizationService.t('duplicate'));
+  const old=data.id?all.find(x=>x.id===data.id):null;
+  const obj={id:data.id||Utils.uid('tx'),date:data.date,time:data.time,amount,quantity:qty,unit:String(data.unit||''),categoryId:data.categoryId||null,
+   categoryPath:data.categoryPath||'',paymentMethod:data.paymentMethod||'cash',note:String(data.note||''),type:data.type||'expense',
+   createdAt:old?.createdAt||Utils.now(),updatedAt:Utils.now(),demo:!!data.demo,syncStatus:'pending'};
+  await DatabaseService.put('transactions',obj);return obj
+ },
+ async remove(id){await DatabaseService.del('transactions',id)},
+ async between(a,b){return (await this.all()).filter(x=>x.date>=a&&x.date<=b)},
+ async totals(a,b){const xs=await this.between(a,b);return {expense:xs.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0),income:xs.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0),count:xs.length,avg:xs.filter(x=>x.type==='expense').length?xs.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)/xs.filter(x=>x.type==='expense').length:0}}
+};
+
+const BalanceService={
+ async get(date){return await DatabaseService.get('balances',date)||{date,starting:0,updatedAt:Utils.now()}},
+ async save(date,starting){if(!Number.isFinite(Number(starting))||Number(starting)<0)throw Error('Invalid balance');return DatabaseService.put('balances',{date,starting:Number(starting),updatedAt:Utils.now(),syncStatus:'pending'})},
+ async all(){return DatabaseService.all('balances')},
+ async current(date=Utils.dateISO()){const b=await this.get(date),tx=await TransactionService.between('0000-01-01',date);return b.starting+tx.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0)-tx.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)}
+};
+
+const ReportService={
+ periods(){
+  const now=new Date(),today=Utils.dateISO(now),y=new Date(now);y.setDate(y.getDate()-1);
+  const monday=new Date(now);monday.setHours(0,0,0,0);monday.setDate(now.getDate()-((now.getDay()+6)%7));
+  const prevEnd=new Date(monday);prevEnd.setDate(prevEnd.getDate()-1);const prevStart=new Date(prevEnd);prevStart.setDate(prevStart.getDate()-6);
+  const first=new Date(now.getFullYear(),now.getMonth(),1),last=new Date(now.getFullYear(),now.getMonth()+1,0);
+  const prevFirst=new Date(now.getFullYear(),now.getMonth()-1,1),prevLast=new Date(now.getFullYear(),now.getMonth(),0);
+  return {
+   today:[today,today],yesterday:[Utils.dateISO(y),Utils.dateISO(y)],thisWeek:[Utils.dateISO(monday),today],
+   prevWeek:[Utils.dateISO(prevStart),Utils.dateISO(prevEnd)],firstHalf:[Utils.dateISO(first),Utils.dateISO(new Date(now.getFullYear(),now.getMonth(),15))],
+   secondHalf:[Utils.dateISO(new Date(now.getFullYear(),now.getMonth(),16)),Utils.dateISO(last)],
+   thisMonth:[Utils.dateISO(first),Utils.dateISO(last)],prevMonth:[Utils.dateISO(prevFirst),Utils.dateISO(prevLast)],
+   thisYear:[`${now.getFullYear()}-01-01`,`${now.getFullYear()}-12-31`],prevYear:[`${now.getFullYear()-1}-01-01`,`${now.getFullYear()-1}-12-31`]
+  }
+ },
+ async aggregate(a,b){
+  const [xs,cats]=await Promise.all([TransactionService.between(a,b),CategoryService.all()]);
+  const cm=new Map(cats.map(c=>[c.id,c]));const expense=xs.filter(x=>x.type==='expense');
+  const byCat=new Map(),byUnit=new Map();
+  for(const x of expense){const key=x.categoryId||'uncat';const name=x.categoryPath||cm.get(x.categoryId)?.name||'Uncategorized';const o=byCat.get(key)||{key,name,amount:0,quantity:0,units:{}};o.amount+=x.amount;if(x.quantity!=null){o.quantity+=x.quantity;o.units[x.unit||'unit']=(o.units[x.unit||'unit']||0)+x.quantity}byCat.set(key,o);
+   if(x.quantity!=null){const u=x.unit||'unit';byUnit.set(u,(byUnit.get(u)||0)+x.quantity)}
+  }
+  return {xs,expense,total:expense.reduce((s,x)=>s+x.amount,0),income:xs.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0),count:expense.length,avg:expense.length?expense.reduce((s,x)=>s+x.amount,0)/expense.length:0,
+   categories:[...byCat.values()].sort((a,b)=>b.amount-a.amount),units:[...byUnit.entries()].map(([unit,quantity])=>({unit,quantity}))};
+ }
+};
+
+const AnalyticsService={
+ async monthly(a,b){
+  const xs=await TransactionService.between(a,b),m=new Map();
+  for(const x of xs.filter(x=>x.type==='expense')){const k=x.date.slice(0,7);m.set(k,(m.get(k)||0)+x.amount)}
+  return [...m.entries()].sort()
+ },
+ async compare(a,b,c,d){
+  const [A,B]=await Promise.all([ReportService.aggregate(a,b),ReportService.aggregate(c,d)]);
+  const names=new Set([...A.categories,...B.categories].map(x=>x.name)),rows=[];
+  for(const name of names){const av=A.categories.find(x=>x.name===name),bv=B.categories.find(x=>x.name===name);rows.push({name,a:av?.amount||0,b:bv?.amount||0,change:(av?.amount||0)-(bv?.amount||0),pct:Utils.pct(av?.amount||0,bv?.amount||0)})}
+  return {A,B,rows:rows.sort((x,y)=>Math.abs(y.change)-Math.abs(x.change))}
+ }
+};
+
+const SpeechService={
+ recognition:null,active:false,
+ supported(){return 'SpeechRecognition'in window||'webkitSpeechRecognition'in window},
+ start(onResult,onEnd,onError){
+  if(!this.supported()){onError?.(LocalizationService.t('unsupported'));return}
+  const R=window.SpeechRecognition||window.webkitSpeechRecognition;this.recognition=new R();this.recognition.lang=LocalizationService.lang==='bn'?'bn-BD':'en-US';
+  this.recognition.interimResults=false;this.recognition.maxAlternatives=3;this.active=true;
+  this.recognition.onresult=e=>onResult(e.results[0][0].transcript);this.recognition.onend=()=>{this.active=false;onEnd?.()};this.recognition.onerror=e=>{this.active=false;onError?.(e.error)};
+  this.recognition.start()
+ },
+ stop(){try{this.recognition?.stop()}catch{}}
+};
+
+const SyncService={
+ async status(){const [t,b]=await Promise.all([TransactionService.all(),BalanceService.all()]);return [...t,...b].filter(x=>x.syncStatus==='pending').length},
+ async markReady(){/* V1 deliberately has no network backend. */ return true}
+};
+
+const ValidationService={transaction(d){if(!d.date)return 'Date is required';if(!d.categoryId)return LocalizationService.t('categoryRequired');if(Number(d.amount)<=0)return LocalizationService.t('amountRequired');return null}};
+
+const ExportService={
+ async excel(){
+  if(!window.XLSX)throw Error('SheetJS unavailable');
+  const [tx,cats,balances]=await Promise.all([TransactionService.all(),CategoryService.all(),BalanceService.all()]),cm=new Map(cats.map(c=>[c.id,c.name]));
+  const rows=tx.map(x=>({ID:x.id,Date:x.date,Time:x.time,Type:x.type==='expense'?LocalizationService.t('expense'):LocalizationService.t('income'),Amount_BDT:x.amount,Quantity:x.quantity??'',Unit:x.unit,Category:x.categoryPath||cm.get(x.categoryId)||'',Payment:x.paymentMethod,Note:x.note,Created:x.createdAt,Updated:x.updatedAt}));
+  const catAgg=new Map(),unitAgg=new Map();
+  for(const x of tx.filter(x=>x.type==='expense')){const k=x.categoryPath||cm.get(x.categoryId)||'Uncategorized';const o=catAgg.get(k)||{Category:k,Expense_BDT:0,Quantity:0};o.Expense_BDT+=x.amount;o.Quantity+=x.quantity||0;catAgg.set(k,o);if(x.quantity!=null)unitAgg.set(x.unit||'unit',(unitAgg.get(x.unit||'unit')||0)+x.quantity)}
+  const wb=XLSX.utils.book_new(), add=(name,data)=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),name);
+  add('Summary',[{Metric:LocalizationService.t('totalExpense'),Value:tx.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)},{Metric:LocalizationService.t('totalIncome'),Value:tx.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0)},{Metric:LocalizationService.t('count'),Value:tx.length}]);
+  add('Transactions',rows);add('Category Analysis',[...catAgg.values()]);add('Subcategory Analysis',[...catAgg.values()]);
+  add('Quantity Consumption',[...unitAgg].map(([Unit,Quantity])=>({Unit,Quantity})));add('Monthly Comparison',await this.monthlyRows(tx));
+  XLSX.writeFile(wb,'HisabAI_Financial_Report.xlsx');App.toast(LocalizationService.t('excelReady'))
+ },
+ async monthlyRows(tx){const m=new Map();for(const x of tx.filter(x=>x.type==='expense')){const k=x.date.slice(0,7);m.set(k,(m.get(k)||0)+x.amount)}return [...m].sort().map(([Month,Expense_BDT])=>({Month,Expense_BDT}))}
+};
+
+const PrintService={print(){window.print()}};
+
+const UIService={
+ modal(html){document.body.insertAdjacentHTML('beforeend',`<div id="modal" class="modal-bg fixed inset-0 z-50 flex items-center justify-center p-3 overflow-auto"><div class="card w-full max-w-2xl p-5">${html}</div></div>`)},
+ close(){document.getElementById('modal')?.remove()},
+ toast(msg,type='ok'){const d=document.createElement('div');d.className='toast rounded-xl px-4 py-3 shadow-lg text-sm font-bold '+(type==='error'?'bg-red-600 text-white':'bg-slate-900 text-white');d.textContent=msg;document.getElementById('toastRoot').appendChild(d);setTimeout(()=>d.remove(),3000)}
+};
+
+const App={
+ state:{view:'dashboard',tx:[],cats:[],balances:[],chart:null,trend:null},
+ async init(){
+  try{await DatabaseService.init();await CategoryService.seed();await this.reload();this.render();}catch(e){document.getElementById('app').innerHTML=`<div class="p-8 max-w-xl mx-auto"><div class="card p-6"><h1 class="text-2xl font-black">HisabAI</h1><p class="mt-3 text-red-600">IndexedDB could not be opened. ${Utils.esc(e.message)}</p></div></div>`}
+ },
+ async reload(){this.state.tx=await TransactionService.all();this.state.cats=(await CategoryService.all()).filter(c=>!c.deleted);this.state.balances=await BalanceService.all()},
+ t(k){return LocalizationService.t(k)},
+ render(){
+  document.documentElement.classList.toggle('dark',(localStorage.getItem('hisabai_theme')||'light')==='dark');
+  const v=this.state.view;
+  document.getElementById('app').innerHTML=`<div class="flex min-h-screen">
+   <aside id="sidebar" class="no-print hidden lg:flex w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex-col sticky top-0 h-screen">
+    ${this.brand()}<nav class="p-3 space-y-1">${this.nav('dashboard','▦',this.t('dashboard'))}${this.nav('transactions','↕',this.t('transactions'))}${this.nav('categories','◈',this.t('categories'))}${this.nav('reports','◒',this.t('reports'))}${this.nav('balances','৳',this.t('balances'))}${this.nav('settings','⚙',this.t('settings'))}</nav>
+    <div class="mt-auto p-4 text-xs text-slate-500">MD IKRAMUL ISLAM SIDDIQUE POROSH<br><b>SENIOR SOFTWARE ENGINEER</b><br>+8801672896992</div>
+   </aside>
+   <main id="main" class="flex-1 min-w-0 pb-20 lg:pb-0">
+    <header class="no-print sticky top-0 z-20 bg-white/90 dark:bg-slate-950/90 backdrop-blur border-b border-slate-200 dark:border-slate-800">
+     <div class="px-4 sm:px-6 py-3 flex items-center gap-3"><button class="lg:hidden btn btn-ghost text-xl" onclick="App.mobileMenu()">☰</button><div class="lg:hidden font-black">${this.brand(true)}</div><div class="ml-auto flex gap-2">
+      <button class="btn btn-soft hidden sm:inline-flex" onclick="App.openVoice()">🎙 ${this.t('voice')}</button><button class="btn btn-primary" onclick="App.openTx()">＋ ${this.t('addExpense')}</button>
+     </div></div>
+    </header>
+    <section class="p-4 sm:p-6 max-w-[1500px] mx-auto">${this.view()}</section>
+   </main>
+   <nav id="mobileNav" class="no-print fixed bottom-0 inset-x-0 z-30 lg:hidden bg-white/95 dark:bg-slate-950/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 p-1">${this.mnav('dashboard','⌂')}${this.mnav('transactions','↕')}${this.mnav('reports','◒')}${this.mnav('categories','◈')}${this.mnav('settings','⚙')}</nav>
+  </div>`;
+  this.afterRender();
+ },
+ brand(compact=false){return `<div class="p-5 ${compact?'p-0':''}"><div class="flex items-center gap-3"><svg width="${compact?34:42}" height="${compact?34:42}" viewBox="0 0 48 48" fill="none" aria-label="HisabAI logo"><rect x="2" y="2" width="44" height="44" rx="14" fill="#4F46E5"/><path d="M14 18h20M14 24h13M14 30h20M34 14v20" stroke="white" stroke-width="3" stroke-linecap="round"/><circle cx="31" cy="24" r="3" fill="#A5B4FC"/></svg><div><div class="font-black text-xl tracking-tight">${this.t('app')}</div>${!compact?`<div class="text-xs text-slate-500">${this.t('subtitle')}</div>`:''}</div></div></div>`},
+ nav(v,icon,label){return `<button onclick="App.go('${v}')" class="w-full text-left px-4 py-3 rounded-xl font-bold flex gap-3 items-center ${this.state.view===v?'nav-active':''}">${icon}<span>${label}</span></button>`},
+ mnav(v,icon){return `<button onclick="App.go('${v}')" class="py-2 text-center text-lg ${this.state.view===v?'text-indigo-600':''}">${icon}<span class="block text-[10px] font-bold">${this.t(v)}</span></button>`},
+ go(v){this.state.view=v;this.render()},
+ mobileMenu(){const s=document.getElementById('sidebar');s.classList.toggle('hidden');s.classList.toggle('fixed');s.classList.toggle('z-50')},
+ view(){
+  if(this.state.view==='transactions')return this.transactionsView();
+  if(this.state.view==='categories')return this.categoriesView();
+  if(this.state.view==='reports')return this.reportsView();
+  if(this.state.view==='balances')return this.balancesView();
+  if(this.state.view==='settings')return this.settingsView();
+  return this.dashboardView();
+ },
+ dashboardView(){
+  const today=Utils.dateISO(),xs=this.state.tx.filter(x=>x.date===today),exp=xs.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0),inc=xs.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0);
+  const current=this.currentBalance(),cats=this.aggregateAll('expense'),recent=[...this.state.tx].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)).slice(0,7);
+  return `<div class="space-y-6"><div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3"><div><p class="text-sm text-slate-500">${this.t('today')}</p><h1 class="text-3xl font-black">${this.t('overview')}</h1></div><div class="flex gap-2"><button class="btn btn-soft" onclick="App.openVoice()">🎙</button><button class="btn btn-primary" onclick="App.openTx()">＋ ${this.t('addExpense')}</button></div></div>
+   <div class="grid grid-cols-2 xl:grid-cols-5 gap-3">${this.stat(this.t('totalExpense'),exp,'text-rose-600','৳')}${this.stat(this.t('totalIncome'),inc,'text-emerald-600','৳')}${this.stat(this.t('currentBalance'),current,'text-indigo-600','৳')}${this.stat(this.t('count'),xs.length,'text-slate-700','')}${this.stat(this.t('starting'),this.startBalance(today),'text-slate-700','৳')}</div>
+   <div class="grid xl:grid-cols-3 gap-5"><div class="card p-5 xl:col-span-2"><div class="flex justify-between"><div><h2 class="font-black">${this.t('trend')}</h2><p class="text-xs text-slate-500">${this.t('thisMonth')}</p></div></div><div class="h-72 mt-4"><canvas id="trendChart"></canvas></div></div>
+   <div class="card p-5"><h2 class="font-black">${this.t('topCategories')}</h2><div class="h-64 mt-4"><canvas id="catChart"></canvas></div></div></div>
+   <div class="grid xl:grid-cols-2 gap-5"><div class="card p-5"><div class="flex justify-between items-center mb-4"><h2 class="font-black">${this.t('recent')}</h2><button class="btn btn-soft text-xs" onclick="App.go('transactions')">${this.t('transactions')} →</button></div>${this.txTable(recent)}</div>
+   <div class="card p-5"><h2 class="font-black mb-4">${this.t('monthly')}</h2>${this.monthCompareMini()}</div></div>
+  </div>`
+ },
+ stat(label,value,cls,pre){return `<div class="card p-4"><div class="text-xs text-slate-500">${label}</div><div class="mt-2 text-xl sm:text-2xl font-black ${cls}">${pre}${Utils.money(value)}</div></div>`},
+ currentBalance(){return this.state.tx.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0)-this.state.tx.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)+this.state.balances.reduce((s,x)=>s+x.starting,0)},
+ startBalance(d){return this.state.balances.find(x=>x.date===d)?.starting||0},
+ aggregateAll(type){const m=new Map();for(const x of this.state.tx.filter(x=>x.type===type)){const n=x.categoryPath||'Uncategorized';m.set(n,(m.get(n)||0)+x.amount)}return [...m].sort((a,b)=>b[1]-a[1]).slice(0,8)},
+ txTable(rows){
+  if(!rows.length)return `<div class="py-10 text-center text-slate-500">${this.t('noTransactions')}</div>`;
+  return `<div class="table-wrap"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2">${this.t('date')}</th><th>${this.t('category')}</th><th>${this.t('quantity')}</th><th>${this.t('amount')}</th><th></th></tr></thead><tbody>${rows.map(x=>`<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-3">${Utils.date(x.date)}<div class="text-xs text-slate-500">${x.time}</div></td><td><b>${Utils.esc(x.categoryPath||'—')}</b><div class="text-xs text-slate-500">${Utils.esc(x.note)}</div></td><td>${x.quantity??'—'} ${Utils.esc(x.unit)}</td><td class="${x.type==='expense'?'text-rose-600':'text-emerald-600'} font-black">${x.type==='expense'?'−':'+'}৳${Utils.money(x.amount)}</td><td><button class="btn btn-ghost text-xs" onclick="App.openTx('${x.id}')">${this.t('edit')}</button></td></tr>`).join('')}</tbody></table></div>`
+ },
+ transactionsView(){
+  return `<div class="space-y-5"><div class="flex flex-col sm:flex-row sm:items-center gap-3"><div><h1 class="text-3xl font-black">${this.t('transactions')}</h1><p class="text-sm text-slate-500">${this.state.tx.length.toLocaleString()} ${this.t('records')}</p></div><div class="sm:ml-auto flex gap-2"><button class="btn btn-soft" onclick="App.openVoice()">🎙 ${this.t('voice')}</button><button class="btn btn-primary" onclick="App.openTx()">＋ ${this.t('addExpense')}</button></div></div>
+  <div class="card p-4"><div class="grid md:grid-cols-5 gap-3"><input id="txSearch" class="input md:col-span-2" placeholder="${this.t('search')}" oninput="App.filterTx()"><select id="txCat" class="input" onchange="App.filterTx()"><option value="">${this.t('allCategories')}</option>${CategoryService.options(this.state.cats)}</select><select id="txType" class="input" onchange="App.filterTx()"><option value="">${this.t('all')}</option><option value="expense">${this.t('expense')}</option><option value="income">${this.t('income')}</option></select><select id="txSort" class="input" onchange="App.filterTx()"><option value="new">${this.t('newest')}</option><option value="old">${this.t('oldest')}</option><option value="amount">${this.t('amount')}</option></select></div></div><div id="txResults"></div></div>`
+ },
+ filterTx(){
+  const q=(document.getElementById('txSearch')?.value||'').toLowerCase(),cat=document.getElementById('txCat')?.value,type=document.getElementById('txType')?.value,sort=document.getElementById('txSort')?.value;
+  let a=this.state.tx.filter(x=>(!cat||x.categoryId===cat)&&(!type||x.type===type)&&(!q||`${x.categoryPath} ${x.note} ${x.unit}`.toLowerCase().includes(q)));
+  a.sort((x,y)=>sort==='amount'?y.amount-x.amount:sort==='old'?(x.date+x.time).localeCompare(y.date+y.time):(y.date+y.time).localeCompare(x.date+x.time));
+  document.getElementById('txResults').innerHTML=`<div class="card p-3">${this.txTable(a.slice(0,100))}</div>${a.length>100?`<p class="text-xs text-slate-500 mt-2">Showing first 100 of ${a.length.toLocaleString()} for UI performance.</p>`:''}`
+ },
+ categoriesView(){
+  const roots=CategoryService.tree(this.state.cats),render=n=>`<div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3"><div class="flex items-center gap-2"><span class="font-bold flex-1">${Utils.esc(n.name)}</span><button class="btn btn-ghost text-xs" onclick="App.renameCat('${n.id}')">✎</button><button class="btn btn-ghost text-xs text-red-600" onclick="App.deleteCat('${n.id}')">×</button><button class="btn btn-soft text-xs" onclick="App.addChild('${n.id}')">＋</button></div>${n.children.length?`<div class="ml-5 mt-2 space-y-2">${n.children.map(render).join('')}</div>`:''}</div>`;
+  return `<div class="space-y-5"><div class="flex justify-between items-center"><div><h1 class="text-3xl font-black">${this.t('categories')}</h1><p class="text-sm text-slate-500">Unlimited hierarchical categories</p></div><button class="btn btn-primary" onclick="App.addChild(null)">＋ ${this.t('addCategory')}</button></div><div class="card p-4 space-y-3">${roots.length?roots.map(render).join(''):`<div class="py-10 text-center text-slate-500">${this.t('noData')}</div>`}</div></div>`
+ },
+ reportsView(){
+  return `<div class="space-y-5"><div><h1 class="text-3xl font-black">${this.t('reports')}</h1><p class="text-sm text-slate-500">${this.t('totalExpense')} · ${this.t('quantityConsumption')}</p></div>
+  <div class="card p-4"><div class="flex flex-wrap gap-2">${[['today','today'],['yesterday','yesterday'],['thisWeek','thisWeek'],['prevWeek','prevWeek'],['firstHalf','firstHalf'],['secondHalf','secondHalf'],['thisMonth','thisMonth'],['prevMonth','prevMonth'],['thisYear','thisYear'],['prevYear','prevYear']].map(([k,l])=>`<button class="btn btn-soft text-xs" onclick="App.loadReport('${k}')">${this.t(l)}</button>`).join('')}<button class="btn btn-primary text-xs" onclick="App.customReport()">${this.t('custom')}</button><button class="btn btn-ghost text-xs" onclick="PrintService.print()">🖨 ${this.t('print')}</button><button class="btn btn-ghost text-xs" onclick="ExportService.excel()">⬇ ${this.t('export')}</button></div></div><div id="reportPanel"></div>
+  <div class="card p-5"><h2 class="font-black mb-4">${this.t('compare')}</h2><div class="grid md:grid-cols-4 gap-3"><input id="ca" type="date" class="input"><input id="cb" type="date" class="input"><input id="cc" type="date" class="input"><input id="cd" type="date" class="input"></div><button class="btn btn-primary mt-3" onclick="App.compare()">↔ ${this.t('compare')}</button><div id="comparePanel" class="mt-4"></div></div></div>`
+ },
+ async loadReport(k){
+  const p=ReportService.periods()[k];if(!p)return;const r=await ReportService.aggregate(...p);
+  document.getElementById('reportPanel').innerHTML=`<div class="card p-5"><div class="flex justify-between"><div><h2 class="font-black">${this.t(k)}</h2><p class="text-xs text-slate-500">${Utils.date(p[0])} → ${Utils.date(p[1])}</p></div></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3 my-5">${this.stat(this.t('totalExpense'),r.total,'text-rose-600','৳')}${this.stat(this.t('count'),r.count,'','')}${this.stat(this.t('average'),r.avg,'','৳')}${this.stat(this.t('totalIncome'),r.income,'text-emerald-600','৳')}</div><div class="grid lg:grid-cols-2 gap-5"><div><h3 class="font-black mb-2">${this.t('categoryBreakdown')}</h3>${this.breakdown(r.categories)}</div><div><h3 class="font-black mb-2">${this.t('quantityConsumption')}</h3>${this.units(r.units)}</div></div></div>`;
+ },
+ breakdown(rows){if(!rows.length)return `<p class="text-slate-500">${this.t('noData')}</p>`;return `<div class="space-y-2">${rows.slice(0,30).map(x=>`<div class="flex gap-3 items-center"><div class="flex-1 min-w-0"><div class="font-semibold truncate">${Utils.esc(x.name)}</div><div class="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div class="h-full bg-indigo-500" style="width:${Utils.clamp(x.amount/(rows[0].amount||1)*100,0,100)}%"></div></div></div><b>৳${Utils.money(x.amount)}</b></div>`).join('')}</div>`},
+ units(rows){if(!rows.length)return `<p class="text-slate-500">${this.t('noData')}</p>`;return `<div class="grid grid-cols-2 gap-2">${rows.map(x=>`<div class="border border-slate-200 dark:border-slate-800 rounded-xl p-3"><div class="text-xs text-slate-500">${Utils.esc(x.unit)}</div><b>${Utils.num(x.quantity)}</b></div>`).join('')}</div>`},
+ customReport(){UIService.modal(`<h2 class="text-xl font-black">${this.t('custom')}</h2><div class="grid grid-cols-2 gap-3 mt-4"><label>${this.t('from')}<input id="rf" type="date" class="input mt-1" value="${Utils.dateISO()}"></label><label>${this.t('to')}<input id="rt" type="date" class="input mt-1" value="${Utils.dateISO()}"></label></div><div class="flex justify-end gap-2 mt-5"><button class="btn btn-ghost" onclick="UIService.close()">${this.t('cancel')}</button><button class="btn btn-primary" onclick="App.customReportGo()">${this.t('reports')}</button></div>`)},
+ async customReportGo(){const a=document.getElementById('rf').value,b=document.getElementById('rt').value;if(a>b){UIService.toast(this.t('invalidRange'),'error');return}UIService.close();const r=await ReportService.aggregate(a,b);document.getElementById('reportPanel').innerHTML=`<div class="card p-5"><h2 class="font-black">${this.t('custom')}: ${Utils.date(a)} → ${Utils.date(b)}</h2><div class="grid grid-cols-2 lg:grid-cols-4 gap-3 my-5">${this.stat(this.t('totalExpense'),r.total,'text-rose-600','৳')}${this.stat(this.t('count'),r.count,'','')}${this.stat(this.t('average'),r.avg,'','৳')}${this.stat(this.t('totalIncome'),r.income,'text-emerald-600','৳')}</div><div class="grid lg:grid-cols-2 gap-5"><div><h3 class="font-black mb-2">${this.t('categoryBreakdown')}</h3>${this.breakdown(r.categories)}</div><div><h3 class="font-black mb-2">${this.t('quantityConsumption')}</h3>${this.units(r.units)}</div></div></div>`},
+ async compare(){const vals=['ca','cb','cc','cd'].map(id=>document.getElementById(id).value);if(vals.some(x=>!x)||vals[0]>vals[1]||vals[2]>vals[3]){UIService.toast(this.t('invalidRange'),'error');return}const r=await AnalyticsService.compare(...vals);document.getElementById('comparePanel').innerHTML=`<div class="grid grid-cols-2 gap-3 mb-4"><div class="card p-3"><div class="text-xs">${this.t('periodA')}</div><b>৳${Utils.money(r.A.total)}</b></div><div class="card p-3"><div class="text-xs">${this.t('periodB')}</div><b>৳${Utils.money(r.B.total)}</b></div></div><div class="table-wrap"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2">${this.t('category')}</th><th>A</th><th>B</th><th>${this.t('difference')}</th><th>%</th></tr></thead><tbody>${r.rows.slice(0,40).map(x=>`<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-2">${Utils.esc(x.name)}</td><td>৳${Utils.money(x.a)}</td><td>৳${Utils.money(x.b)}</td><td class="${x.change>=0?'text-rose-600':'text-emerald-600'} font-bold">${x.change>=0?'+':''}৳${Utils.money(x.change)}</td><td>${x.pct==null?'—':(x.pct>=0?'+':'')+x.pct.toFixed(2)+'%'}</td></tr>`).join('')}</tbody></table></div>`},
+ balancesView(){
+  const today=Utils.dateISO(),b=this.startBalance(today),income=this.state.tx.filter(x=>x.date===today&&x.type==='income').reduce((s,x)=>s+x.amount,0),expense=this.state.tx.filter(x=>x.date===today&&x.type==='expense').reduce((s,x)=>s+x.amount,0);
+  return `<div class="space-y-5"><div><h1 class="text-3xl font-black">${this.t('balances')}</h1><p class="text-sm text-slate-500">${this.t('ending')} = ${this.t('starting')} + ${this.t('income')} − ${this.t('expense')}</p></div><div class="card p-5 max-w-xl"><label class="font-bold">${this.t('starting')} — ${Utils.date(today)}<input id="startBalance" class="input mt-2" type="number" min="0" step="0.01" value="${b}"></label><button class="btn btn-primary mt-4" onclick="App.saveBalance()">${this.t('save')}</button></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3">${this.stat(this.t('starting'),b,'','৳')}${this.stat(this.t('totalIncome'),income,'text-emerald-600','৳')}${this.stat(this.t('totalExpense'),expense,'text-rose-600','৳')}${this.stat(this.t('ending'),b+income-expense,'text-indigo-600','৳')}</div><div class="card p-5">${this.state.balances.length?`<div class="table-wrap"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-slate-500"><th class="py-2">${this.t('date')}</th><th>${this.t('starting')}</th></tr></thead><tbody>${this.state.balances.sort((a,b)=>b.date.localeCompare(a.date)).map(x=>`<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-2">${Utils.date(x.date)}</td><td>৳${Utils.money(x.starting)}</td></tr>`).join('')}</tbody></table></div>`:`<div class="text-center text-slate-500 py-8">${this.t('noData')}</div>`}</div></div>`
+ },
+ settingsView(){
+  const dark=(localStorage.getItem('hisabai_theme')||'light')==='dark';return `<div class="space-y-5"><div><h1 class="text-3xl font-black">${this.t('settings')}</h1></div><div class="card p-5 max-w-2xl space-y-5"><div><label class="font-bold">${this.t('language')}</label><div class="flex gap-2 mt-2"><button class="btn ${LocalizationService.lang==='en'?'btn-primary':'btn-soft'}" onclick="LocalizationService.set('en')">English</button><button class="btn ${LocalizationService.lang==='bn'?'btn-primary':'btn-soft'}" onclick="LocalizationService.set('bn')">বাংলা</button></div></div><div><label class="font-bold">${this.t('theme')}</label><div class="flex gap-2 mt-2"><button class="btn ${!dark?'btn-primary':'btn-soft'}" onclick="App.theme('light')">☀ ${this.t('light')}</button><button class="btn ${dark?'btn-primary':'btn-soft'}" onclick="App.theme('dark')">☾ ${this.t('dark')}</button></div></div><hr class="border-slate-200 dark:border-slate-800"><div><h3 class="font-black">${this.t('sync')}</h3><p class="text-sm text-slate-500 mt-1">${this.t('localOnly')}. ${this.t('notSynced')}: ${this.state.tx.filter(x=>x.syncStatus==='pending').length}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-soft" onclick="App.loadDemo()">${this.t('demo')}</button><button class="btn btn-danger" onclick="App.clearDemo()">${this.t('clearDemo')}</button><button class="btn btn-soft" onclick="ExportService.excel()">⬇ ${this.t('export')}</button></div></div><div class="text-xs text-slate-500">V1 is intentionally single-file. No server, REST API, cloud database or build system is used.</div></div>`
+ },
+ theme(v){localStorage.setItem('hisabai_theme',v);this.render()},
+ afterRender(){
+  if(this.state.view==='transactions')this.filterTx();
+  if(this.state.view==='dashboard')this.drawCharts();
+ },
+ async drawCharts(){
+  if(!window.Chart)return;const now=new Date(),first=new Date(now.getFullYear(),now.getMonth(),1),days=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),labels=[],vals=[];
+  for(let i=1;i<=days;i++){const d=Utils.dateISO(new Date(now.getFullYear(),now.getMonth(),i));labels.push(i);vals.push(this.state.tx.filter(x=>x.date===d&&x.type==='expense').reduce((s,x)=>s+x.amount,0))}
+  this.state.trend?.destroy();this.state.chart?.destroy();this.state.trend=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels,datasets:[{label:this.t('expense'),data:vals,tension:.35,fill:true}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+  const data=this.aggregateAll('expense');this.state.chart=new Chart(document.getElementById('catChart'),{type:'doughnut',data:{labels:data.map(x=>x[0]),datasets:[{data:data.map(x=>x[1])}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}})
+ },
+ monthCompareMini(){const now=new Date(),a=new Date(now.getFullYear(),now.getMonth(),1),b=new Date(now.getFullYear(),now.getMonth(),0),af=Utils.dateISO(a),at=Utils.dateISO(new Date(now.getFullYear(),now.getMonth()+1,0)),bf=Utils.dateISO(new Date(now.getFullYear(),now.getMonth()-1,1)),bt=Utils.dateISO(b),A=this.state.tx.filter(x=>x.type==='expense'&&x.date>=af&&x.date<=at).reduce((s,x)=>s+x.amount,0),B=this.state.tx.filter(x=>x.type==='expense'&&x.date>=bf&&x.date<=bt).reduce((s,x)=>s+x.amount,0),d=A-B,p=Utils.pct(A,B);return `<div class="grid grid-cols-2 gap-3"><div class="border border-slate-200 dark:border-slate-800 rounded-xl p-4"><div class="text-xs text-slate-500">${this.t('thisMonth')}</div><b class="text-xl">৳${Utils.money(A)}</b></div><div class="border border-slate-200 dark:border-slate-800 rounded-xl p-4"><div class="text-xs text-slate-500">${this.t('prevMonth')}</div><b class="text-xl">৳${Utils.money(B)}</b></div></div><div class="mt-4 text-sm">${this.t('difference')}: <b class="${d>=0?'text-rose-600':'text-emerald-600'}">${d>=0?'+':''}৳${Utils.money(d)}</b> ${p==null?'':`(${p>=0?'+':''}${p.toFixed(2)}%)`}</div>`},
+ async openTx(id=null,forcedType='expense',prefill={}){
+  const old=id?this.state.tx.find(x=>x.id===id):null,d=old||{date:Utils.dateISO(),time:Utils.timeNow(),type:forcedType,amount:'',quantity:'',unit:'',categoryId:'',paymentMethod:'cash',note:'',categoryPath:''};
+  UIService.modal(`<form onsubmit="App.submitTx(event,'${id||''}')"><div class="flex justify-between items-center"><h2 class="text-xl font-black">${id?this.t('edit'):d.type==='income'?this.t('addIncome'):this.t('addExpense')}</h2><button type="button" class="btn btn-ghost" onclick="UIService.close()">×</button></div><div class="grid sm:grid-cols-2 gap-3 mt-4"><label>${this.t('date')}<input name="date" class="input mt-1" type="date" value="${d.date}"></label><label>${this.t('time')}<input name="time" class="input mt-1" type="time" value="${d.time}"></label><label>${this.t('amount')} (BDT)<input name="amount" class="input mt-1" type="number" min="0.01" step="0.01" required value="${d.amount}"></label><label>${this.t('quantity')}<input name="quantity" class="input mt-1" type="number" min="0.0001" step="any" placeholder="${this.t('quantityHint')}" value="${d.quantity??''}"></label><label>${this.t('unit')}<input name="unit" class="input mt-1" placeholder="${this.t('unitHint')}" value="${Utils.esc(d.unit)}"></label><label>${this.t('category')}<select name="categoryId" class="input mt-1" required><option value="">${this.t('allCategories')}</option>${CategoryService.options(this.state.cats,d.categoryId)}</select></label><label>${this.t('payment')}<select name="paymentMethod" class="input mt-1"><option value="cash">${this.t('paymentCash')}</option><option value="card">${this.t('paymentCard')}</option><option value="bank">${this.t('paymentBank')}</option><option value="mobile">${this.t('paymentMobile')}</option><option value="other">${this.t('paymentOther')}</option></select></label><label>${this.t('type')}<select name="type" class="input mt-1"><option value="expense" ${d.type==='expense'?'selected':''}>${this.t('expense')}</option><option value="income" ${d.type==='income'?'selected':''}>${this.t('income')}</option></select></label><label class="sm:col-span-2">${this.t('note')}<textarea name="note" class="input mt-1" rows="2">${Utils.esc(d.note)}</textarea></label></div><div class="flex justify-end gap-2 mt-5"><button type="button" class="btn btn-ghost" onclick="UIService.close()">${this.t('cancel')}</button><button class="btn btn-primary">${this.t('save')}</button></div></form>`);
+ },
+ async submitTx(e,id){e.preventDefault();const f=new FormData(e.target),data=Object.fromEntries(f.entries()),cat=this.state.cats.find(x=>x.id===data.categoryId);data.id=id||undefined;data.categoryPath=cat?await CategoryService.path(cat.id,this.state.cats):'';try{await TransactionService.save(data);await this.reload();UIService.close();this.render();this.toast(this.t('saved'))}catch(x){UIService.toast(x.message,'error')}},
+ async renameCat(id){const c=this.state.cats.find(x=>x.id===id);UIService.modal(`<h2 class="text-xl font-black">${this.t('rename')}</h2><input id="catName" class="input mt-4" value="${Utils.esc(c.name)}"><div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick="UIService.close()">${this.t('cancel')}</button><button class="btn btn-primary" onclick="App.doRename('${id}')">${this.t('save')}</button></div>`)},
+ async doRename(id){try{await CategoryService.update(id,document.getElementById('catName').value);await this.reload();UIService.close();this.render()}catch(e){UIService.toast(e.message,'error')}},
+ addChild(parentId){UIService.modal(`<h2 class="text-xl font-black">${this.t('addCategory')}</h2><p class="text-xs text-slate-500 mt-1">${parentId?(this.state.cats.find(x=>x.id===parentId)?.name||''):this.t('root')}</p><input id="newCat" class="input mt-4" placeholder="${this.t('categoryName')}"><div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick="UIService.close()">${this.t('cancel')}</button><button class="btn btn-primary" onclick="App.doAddCat('${parentId||''}')">${this.t('create')}</button></div>`)},
+ async doAddCat(parent){try{await CategoryService.create(document.getElementById('newCat').value,parent||null);await this.reload();UIService.close();this.render()}catch(e){UIService.toast(e.message,'error')}},
+ async deleteCat(id){if(!confirm(this.t('deleteCategoryWarn')+'\n'+this.t('confirmDelete')))return;await CategoryService.remove(id);await this.reload();this.render();this.toast(this.t('categoryDeleted'))},
+ async saveBalance(){try{await BalanceService.save(Utils.dateISO(),Number(document.getElementById('startBalance').value));await this.reload();this.render();this.toast(this.t('saved'))}catch(e){UIService.toast(e.message,'error')}},
+ openVoice(){
+  if(!SpeechService.supported()){UIService.modal(`<h2 class="text-xl font-black">${this.t('voice')}</h2><p class="mt-3 text-red-600">${this.t('unsupported')}</p><button class="btn btn-primary mt-5" onclick="UIService.close()">${this.t('ok')||this.t('cancel')}</button>`);return}
+  UIService.modal(`<div class="text-center p-3"><div class="text-5xl">🎙</div><h2 class="text-xl font-black mt-3">${this.t('voice')}</h2><p id="voiceStatus" class="text-slate-500 mt-2">${this.t('voiceHint')}</p><button id="voiceBtn" class="btn btn-primary mt-5" onclick="App.listen()">● ${this.t('listen')}</button><button class="btn btn-ghost mt-2" onclick="UIService.close()">${this.t('cancel')}</button></div>`)
+ },
+ listen(){document.getElementById('voiceStatus').textContent=this.t('listen');SpeechService.start(async text=>{document.getElementById('voiceStatus').textContent=this.t('recognized')+': '+text;await this.parseVoice(text)},()=>{},e=>UIService.toast(e,'error'))},
+ async parseVoice(text){
+  const amountMatch=text.match(/(?:৳|টাকা|taka|bdt|Tk\.?)\s*([\d০-৯]+(?:[.,]\d+)?)/i)||text.match(/([\d০-৯]+(?:[.,]\d+)?)\s*(?:৳|টাকা|taka|bdt|tk)/i);
+  const bn='০১২৩৪৫৬৭৮৯';const toNum=s=>String(s).replace(/[০-৯]/g,c=>bn.indexOf(c));const amount=amountMatch?Number(toNum(amountMatch[1]).replace(/,/g,'')):null;
+  const qMatch=text.match(/([\d০-৯]+(?:[.,]\d+)?)\s*(কেজি|কিলো|লিটার|গ্রাম|প্যাক|প্যাকেট|টা|টি|trip|kg|kgs|litre|liter|gram|pack|piece|pcs|ট্রিপ)/i);
+  const quantity=qMatch?Number(toNum(qMatch[1]).replace(',','.')):null,unit=qMatch?qMatch[2]:'';
+  const lower=Utils.norm(text),cats=this.state.cats;
+  let found=cats.find(c=>lower.includes(Utils.norm(c.name)));
+  const synonyms=[['রিকশা','Rickshaw Fare'],['রিকশাভাড়া','Rickshaw Fare'],['চাল','Rice'],['ভাড়া','Rickshaw Fare'],['তেল','Oil'],['চা','Tea'],['বিরি','Biri'],['সিগারেট','Cigarette'],['বাস','Bus'],['সিএনজি','CNG'],['বাজার','Grocery']];
+  if(!found){for(const [s,n] of synonyms){if(lower.includes(Utils.norm(s))){found=cats.find(c=>Utils.norm(c.name)===Utils.norm(n));if(found)break}}}
+  if(!amount){UIService.toast('Could not detect an amount.','error');return}
+  if(!found){UIService.close();UIService.modal(`<h2 class="text-xl font-black">${this.t('createCategory')}</h2><p class="mt-2">No suitable existing category was found for: <b>${Utils.esc(text)}</b></p><input id="voiceCat" class="input mt-4" value="${Utils.esc(qMatch?text.replace(qMatch[0],'').replace(amountMatch?.[0]||'','').trim():text)}"><div class="flex justify-end gap-2 mt-4"><button class="btn btn-ghost" onclick="UIService.close()">${this.t('cancel')}</button><button class="btn btn-primary" onclick="App.createVoiceCat(${amount},${quantity??'null'},'${Utils.esc(unit)}','${Utils.esc(text).replace(/'/g,"&#39;")}')">${this.t('create')}</button></div>`);return}
+  UIService.close();this.openTx(null,'expense',{});
+  setTimeout(()=>{const form=document.querySelector('#modal form');if(form){form.amount.value=amount;if(quantity!=null)form.quantity.value=quantity;form.unit.value=unit;form.categoryId.value=found.id;form.note.value=text}},30)
+ },
+ async createVoiceCat(amount,quantity,unit,note){const name=document.getElementById('voiceCat').value.trim();try{await CategoryService.create(name,null);await this.reload();const c=this.state.cats.find(x=>Utils.norm(x.name)===Utils.norm(name));UIService.close();this.openTx();setTimeout(()=>{const f=document.querySelector('#modal form');if(f){f.amount.value=amount;f.quantity.value=quantity??'';f.unit.value=unit;f.categoryId.value=c?.id||'';f.note.value=note}},30)}catch(e){UIService.toast(e.message,'error')}},
+ async loadDemo(){
+  const cats=this.state.cats, find=n=>cats.find(c=>Utils.norm(c.name)===Utils.norm(n)), now=new Date();
+  const samples=[['Rice',5,'kg',450,0],['Oil',2,'litre',360,1],['Rickshaw Fare',1,'trip',80,2],['Tea',2,'pack',120,4],['Vegetables',3,'kg',240,6],['Bus',2,'trip',100,8],['Biri',2,'pack',240,10],['Restaurant',1,'meal',550,12],['Rice',4,'kg',380,15],['Oil',1.5,'litre',290,18],['CNG',1,'trip',300,21],['Grocery',1,'shopping',1200,24]];
+  for(const [n,q,u,a,ago] of samples){const d=new Date(now);d.setDate(d.getDate()-ago);const c=find(n)||cats.find(x=>x.name==='Grocery');await TransactionService.save({date:Utils.dateISO(d),time:'18:30',amount:a,quantity:q,unit:u,categoryId:c?.id,categoryPath:c?await CategoryService.path(c.id,cats):'Grocery',paymentMethod:'cash',note:'Demo transaction',type:'expense',demo:true,allowDuplicate:true})}
+  await TransactionService.save({date:Utils.dateISO(now),time:'09:00',amount:25000,quantity:null,unit:'',categoryId:null,categoryPath:'Income',paymentMethod:'bank',note:'Demo salary',type:'income',demo:true,allowDuplicate:true});
+  await this.reload();this.render();this.toast(this.t('demoLoaded'))
+ },
+ async clearDemo(){if(!confirm(this.t('confirmDelete')))return;for(const x of [...this.state.tx])if(x.demo)await TransactionService.remove(x.id);await this.reload();this.render();this.toast(this.t('demoCleared'))},
+ toast(m){UIService.toast(m)}
+};
+window.App=App;window.UIService=UIService;window.LocalizationService=LocalizationService;window.PrintService=PrintService;window.ExportService=ExportService;
+
+document.addEventListener('click',e=>{if(e.target.id==='modal'&&e.target===document.getElementById('modal'))UIService.close()});
+App.init();
+</script>
+</body>
+</html>
